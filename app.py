@@ -34,6 +34,7 @@ def generate_invoice_pdf(
             f.write(logo_bytes)
         pdf.image(logo_path, x=10, y=8, w=33)
         os.remove(logo_path)
+
     # Company Info Header
     pdf.set_font("Arial", size=14)
     pdf.cell(200, 10, txt=company_name or "Payment Invoice", ln=1, align='C')
@@ -42,7 +43,7 @@ def generate_invoice_pdf(
     if company_address:
         pdf.multi_cell(0, 6, txt=company_address, align='C')
 
-# Combine email and phone in one line if available
+    # Combine email and phone in one line if available
     contact_line = ""
     if company_email:
         contact_line += f"Email: {company_email}  "
@@ -52,7 +53,6 @@ def generate_invoice_pdf(
         pdf.cell(200, 6, txt=contact_line.strip(), ln=1, align='C')
 
     pdf.ln(10)
-
 
     # ===== Table Header =====
     col_width_key = 60
@@ -68,7 +68,6 @@ def generate_invoice_pdf(
     pdf.set_font("Arial", '', 10)
     for key, value in data.items():
         pdf.cell(col_width_key, row_height, str(key), border=1)
-        # Ensure encoding doesn't break the value
         value_str = str(value).encode('latin-1', 'replace').decode('latin-1')
         pdf.cell(col_width_val, row_height, value_str, border=1)
         pdf.ln(row_height)
@@ -93,36 +92,21 @@ def generate_invoice_pdf(
     pdf.set_font("Arial", style='I', size=9)
     pdf.multi_cell(0, 10, txt="This is a system-generated receipt and does not require a physical signature.", align='C')
 
-    # Save PDF
     pdf.output(filename)
 
 # ========== Streamlit UI ==========
 st.set_page_config(page_title="📧 Smart Bulk Email Sender", layout="centered")
 st.title("📧 Smart Bulk Email Sender")
-st.markdown("Upload your email content (manual or template) and CSV file to send personalized emails with optional attachments and invoices.")
+st.markdown("Upload your email content and CSV file to send personalized emails with optional attachments and invoices.")
 
+# Help section
 with st.expander("📌 How to Configure Gmail SMTP (Required Step)", expanded=False):
     st.markdown("""
-    To send emails via Gmail, you **must use an App Password** (not your regular Gmail password).  
-    Follow these steps to generate and use it:
-
-    ### 🔐 Step-by-Step Guide:
-
-    1. **Enable 2-Step Verification** on your Google Account:  
-       👉 [https://myaccount.google.com/security](https://myaccount.google.com/security)
-
-    2. **Generate an App Password**:  
-       👉 [https://myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)  
-       - Select **Mail** as the app.  
-       - Select **Other (Custom name)** and enter a name like "Bulk Email App".  
-       - Click **Generate** and copy the 16-character password.
-
-    3. **Paste that App Password** into the **Gmail App Password** field below.
-
-    ✅ You're now ready to send emails securely!
-
-    ---
-    🔒 **Note:** Never share your App Password. It gives email-sending access to your account.
+    To send emails via Gmail, use an **App Password** (not your Gmail password).  
+    Steps:
+    1. Enable 2-Step Verification → [Google Account Security](https://myaccount.google.com/security)  
+    2. Generate App Password → [App Passwords](https://myaccount.google.com/apppasswords)  
+    3. Use it below in **Gmail App Password**
     """)
 
 # Email config
@@ -130,7 +114,7 @@ sender_email = st.text_input("Your Gmail Address", placeholder="you@gmail.com")
 app_password = st.text_input("Gmail App Password", type="password")
 subject = st.text_input("Email Subject", value="🔔 Payment Reminder – Virtual Internship")
 
-# Email content input
+# Email content
 email_mode = st.radio("✍️ Email Content Mode", ["Use HTML Template", "Write Manually"])
 html_template = ""
 placeholders = set()
@@ -149,7 +133,7 @@ csv_file = st.file_uploader("📊 Upload Recipient CSV File", type=["csv"])
 attachment = st.file_uploader("📎 Upload Optional Attachment (PDF, DOCX, etc.)", type=["pdf", "jpg", "png", "docx", "xlsx", "zip"])
 custom_invoice_template = st.file_uploader("📥 Upload Your Invoice PDF Template (Optional)", type=["pdf"])
 
-# Sidebar Invoice Customization
+# Sidebar settings
 st.sidebar.header("🧾 Invoice Customization")
 company_name = st.sidebar.text_input("Company/Organization Name", "Virtual Internship")
 company_address = st.sidebar.text_area("Company Address", "123, Some Street, India")
@@ -175,7 +159,7 @@ send_time = None
 if schedule_send:
     send_time = st.time_input("Choose send time (today)", value=datetime.time(10, 0))
 
-# ===== Load CSV and Setup PDF Fields Selection =====
+# Process CSV and preview
 if csv_file and html_template:
     df = pd.read_csv(csv_file)
     st.subheader("📋 CSV Columns Found:")
@@ -199,7 +183,10 @@ if csv_file and html_template:
     email_cols = [col for col in df.columns if 'email' in col.lower()]
     email_column = st.selectbox("📨 Select recipient email column", email_cols)
 
-    # Preview
+    # 🆕 Invoice toggle
+    attach_invoice = st.checkbox("📎 Attach Invoice PDF to each email?", value=True)
+
+    # Preview email
     st.subheader("👁️ Email Preview (First Row)")
     preview_data = df.iloc[0].fillna("").to_dict()
     try:
@@ -213,6 +200,7 @@ if csv_file and html_template:
     except Exception as e:
         st.error(f"❌ Error rendering preview: {e}")
 
+    # Send button
     if st.button("📤 Send Emails Now"):
         try:
             if schedule_send and send_time:
@@ -274,31 +262,32 @@ if csv_file and html_template:
                         file_part['Content-Disposition'] = f'attachment; filename="{attachment.name}"'
                         msg.attach(file_part)
 
-                    # Invoice PDF (custom or generated)
-                    if custom_invoice_template:
-                        file_part = MIMEApplication(custom_invoice_template.read(), Name=custom_invoice_template.name)
-                        file_part['Content-Disposition'] = f'attachment; filename="{custom_invoice_template.name}"'
-                        msg.attach(file_part)
-                    else:
-                        pdf_filename = f"{safe_get('Name')}_{idx}.pdf"
-                        filtered_invoice_data = {k: v for k, v in merged_data.items() if k in invoice_fields}
+                    # 🧾 Optional Invoice
+                    if attach_invoice:
+                        if custom_invoice_template:
+                            file_part = MIMEApplication(custom_invoice_template.read(), Name=custom_invoice_template.name)
+                            file_part['Content-Disposition'] = f'attachment; filename="{custom_invoice_template.name}"'
+                            msg.attach(file_part)
+                        else:
+                            pdf_filename = f"{safe_get('Name')}_{idx}.pdf"
+                            filtered_invoice_data = {k: v for k, v in merged_data.items() if k in invoice_fields}
 
-                        generate_invoice_pdf(
-                            filtered_invoice_data,
-                            pdf_filename,
-                            company_name,
-                            company_address,
-                            footer_note,
-                            logo_bytes,
-                            company_email,
-                            company_mobile,
-                            signature_bytes
-                        )
-                        with open(pdf_filename, "rb") as f:
-                            pdf_part = MIMEApplication(f.read(), Name=pdf_filename)
-                            pdf_part['Content-Disposition'] = f'attachment; filename="{pdf_filename}"'
-                            msg.attach(pdf_part)
-                        os.remove(pdf_filename)
+                            generate_invoice_pdf(
+                                filtered_invoice_data,
+                                pdf_filename,
+                                company_name,
+                                company_address,
+                                footer_note,
+                                logo_bytes,
+                                company_email,
+                                company_mobile,
+                                signature_bytes
+                            )
+                            with open(pdf_filename, "rb") as f:
+                                pdf_part = MIMEApplication(f.read(), Name=pdf_filename)
+                                pdf_part['Content-Disposition'] = f'attachment; filename="{pdf_filename}"'
+                                msg.attach(pdf_part)
+                            os.remove(pdf_filename)
 
                     server.sendmail(sender_email, receiver_email, msg.as_string())
                     results.append({"email": receiver_email, "status": "Sent"})
